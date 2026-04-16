@@ -1,6 +1,7 @@
 {
   "name": "lalabnb",
   "version": "1.0.0",
+  "homepage": ".",
   "private": true,
   "dependencies": {
     "@stripe/react-stripe-js": "^6.2.0",

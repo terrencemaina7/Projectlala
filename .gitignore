@@ -20,3 +20,6 @@ build/
 # Firebase local config (optional)
 .firebase/
 .firebaserc
+# Firebase admin keys
+server/ServiceAccountkey.json.json
+*.json
