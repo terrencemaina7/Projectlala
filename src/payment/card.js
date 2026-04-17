@@ -16,7 +16,7 @@
 import React, { useState, useEffect } from 'react';
 import { COLORS, primaryBtnStyle } from '../styles/theme';
 
-const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:4000';
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:4242';
 
 // ─── 1. Create a PaymentIntent on your backend ────────────────────────────────
 /**

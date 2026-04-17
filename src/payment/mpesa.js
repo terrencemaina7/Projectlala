@@ -9,7 +9,7 @@
 //
 // Daraja docs: https://developer.safaricom.co.ke/APIs/MpesaExpressSimulate
 
-const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:4000';
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:4242';
 
 /**
  * Trigger an STK Push prompt on the guest's phone.
@@ -29,7 +29,7 @@ export async function initiateMpesaPayment({ phone, amount, listingId, listingNa
     .replace(/^\+/, '')
     .replace(/^0/, '254');
 
-  const res = await fetch(`${API_BASE}/api/payments/mpesa/stkpush`, {
+  const res = await fetch(`${API_BASE}/mpesa/pay`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -60,7 +60,7 @@ export async function initiateMpesaPayment({ phone, amount, listingId, listingNa
  * @returns {Promise<{ status: 'pending' | 'success' | 'failed', message: string }>}
  */
 export async function checkMpesaStatus(checkoutRequestId) {
-  const res = await fetch(`${API_BASE}/api/payments/mpesa/status`, {
+  const res = await fetch(`${API_BASE}/mpesa/pay/`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ checkoutRequestId }),

@@ -1,13 +1,18 @@
 import admin from "firebase-admin";
 import dotenv from "dotenv";
+import fs from "fs";
 
 dotenv.config();
 
-// IMPORTANT: you'll use a service account key (next step)
-import serviceAccount from "./serviceAccountKey.json" with { type: "json" };
+// Load service account safely
+const serviceAccount = JSON.parse(
+  fs.readFileSync("./serviceAccountKey.json", "utf8")
+);
 
+// Initialize Firebase Admin FIRST
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
+// Firestore instance
 export const db = admin.firestore();

@@ -12,7 +12,7 @@ export const createBooking = async ({
     userId,
     listingId,
     amount,
-    paymentMethod, // "mpesa" | "flutterwave"
+    paymentMethod, // "mpesa" | 
     status,        // "paid" | "pending"
     phone,
     createdAt: new Date().toISOString(),

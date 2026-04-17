@@ -10,6 +10,16 @@ import React, { useState, useEffect } from 'react';
 import { COLORS } from '../styles/theme';
 import { useApp } from '../context/AppContext';
 import { LISTINGS } from '../data/listings';
+import { db } from '../firebase';
+import {
+  collection,
+  onSnapshot,
+  deleteDoc,
+  doc,
+  addDoc,
+  setDoc,
+  serverTimestamp,
+} from 'firebase/firestore';
 
 // ─── Firestore imports ────────────────────────────────────────────────────────
 // Uncomment these once your firebase.js config values are filled in:
@@ -266,6 +276,7 @@ export default function AdminPage() {
   const [listings, setListings]           = useState(
     LISTINGS.map(l => ({ ...l, status: 'active', hidden: false }))
   );
+  const [pendingListings, setPendingListings] = useState([]);
   const [users]                           = useState(MOCK_USERS);
   const [analytics, setAnalytics]         = useState({ totalVisits: 0, uniqueUsers: 0, pageviews: {} });
   const [slideOpen, setSlideOpen]         = useState(false);
@@ -282,6 +293,47 @@ export default function AdminPage() {
   //   });
   //   return () => unsub();
   // }, []);
+
+  
+// ── Load pending listings submitted by hosts ─────────────────────────────
+useEffect(() => {
+  const q = collection(db, 'pendingListings');
+
+  const unsub = onSnapshot(q, (snapshot) => {
+    const data = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    setPendingListings(data);
+  });
+
+  return () => unsub();
+}, []);
+
+  const handleApproveListing = async (listing) => {
+  try {
+    // move to approvedListings
+    await addDoc(collection(db, 'listings'), {
+      ...listing,
+      approvedAt: new Date()
+    });
+
+    // delete from pending
+    await deleteDoc(doc(db, 'pendingListings', listing.id));
+
+  } catch (err) {
+    console.error('Approve error:', err);
+  }
+};
+
+const handleRejectListing = async (id) => {
+  try {
+    await deleteDoc(doc(db, 'pendingListings', id));
+  } catch (err) {
+    console.error('Reject error:', err);
+  }
+};
 
 // ── Load analytics from Firestore ────────────────────────────────────────
 useEffect(() => {
@@ -421,9 +473,10 @@ if (!user.isAdmin) {
 
   // ── Sidebar nav items ────────────────────────────────────────────────────
   const NAV = [
-    { id: 'overview',  icon: '◈',  label: 'Overview'         },
-    { id: 'listings',  icon: '🏡', label: 'Listings'         },
-    { id: 'users',     icon: '👥', label: 'Users'            },
+    { id: 'overview',  icon: '◈',  label: 'Overview'                                    },
+    { id: 'pending',   icon: '⏳', label: 'Pending Review', badge: pendingListings.length },
+    { id: 'listings',  icon: '🏡', label: 'Listings'                                     },
+    { id: 'users',     icon: '👥', label: 'Users'                                         },
   ];
 
   return (
@@ -479,10 +532,15 @@ if (!user.isAdmin) {
               }}
             >
               <span style={{ fontSize: 18, lineHeight: 1, flexShrink: 0 }}>{item.icon}</span>
-              {!sidebarCollapsed && item.label}
-              {!sidebarCollapsed && activeSection === item.id && (
-                <span style={{ marginLeft: 'auto', width: 6, height: 6, borderRadius: '50%', background: A.accent }} />
-              )}
+            {!sidebarCollapsed && item.label}
+            {!sidebarCollapsed && item.badge > 0 && (
+              <span style={{ marginLeft: 'auto', background: A.amber, color: '#fff', borderRadius: 20, fontSize: 10, fontWeight: 700, padding: '1px 7px', minWidth: 18, textAlign: 'center' }}>
+                {item.badge}
+              </span>
+            )}
+            {!sidebarCollapsed && activeSection === item.id && !item.badge && (
+              <span style={{ marginLeft: 'auto', width: 6, height: 6, borderRadius: '50%', background: A.accent }} />
+            )}
             </button>
           ))}
         </nav>
@@ -554,7 +612,7 @@ if (!user.isAdmin) {
               {/* Stat cards */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 28 }}>
                 <StatCard icon="🏡" label="Available rooms"    value={activeListings}          sub={`${hiddenListings} hidden`}                    accent={A.green} />
-                <StatCard icon="⏳" label="Pending bookings"   value={MOCK_BOOKINGS_PENDING}    sub="Awaiting approval"                             accent={A.amber} />
+                <StatCard icon="⏳" label="Pending review"     value={pendingListings.length}   sub="Host submissions"                              accent={A.amber} />
                 <StatCard icon="👥" label="Registered users"   value={totalUsers}              sub={`${analytics.uniqueUsers} unique visitors`}    accent={A.blue}  />
                 <StatCard icon="🌐" label="Website visits"     value={analytics.totalVisits}   sub="All-time page views"                           accent={A.accent}/>
                 <StatCard icon="📋" label="Total listings"     value={totalListings}           sub={`${activeListings} active`}                    accent="#8B6F47" />
@@ -638,6 +696,88 @@ if (!user.isAdmin) {
               </div>
             </div>
           )}
+
+          {/* ── PENDING LISTINGS ─────────────────────────────── */}
+<div style={{ marginBottom: 30 }}>
+  <h2 style={{
+    fontFamily: "'Playfair Display', serif",
+    marginBottom: 10
+  }}>
+    Pending Listings ({pendingListings.length})
+  </h2>
+
+  {pendingListings.length === 0 ? (
+    <p style={{ color: A.muted }}>No pending listings</p>
+  ) : (
+    <div style={{ display: 'grid', gap: 12 }}>
+      {pendingListings.map((listing) => (
+        <div
+          key={listing.id}
+          style={{
+            border: `1px solid ${A.border}`,
+            padding: 16,
+            borderRadius: 12,
+            background: '#fff'
+          }}
+        >
+          <div style={{ display: 'flex', gap: 12 }}>
+            <img
+              src={listing.imageUrl}
+              alt={listing.title}
+              style={{
+                width: 80,
+                height: 60,
+                objectFit: 'cover',
+                borderRadius: 8
+              }}
+            />
+
+            <div style={{ flex: 1 }}>
+              <h4 style={{ margin: 0 }}>{listing.title}</h4>
+              <p style={{ margin: '4px 0', color: A.muted }}>
+                📍 {listing.location}
+              </p>
+              <p style={{ fontWeight: 600 }}>
+                {fmt(listing.price)}
+              </p>
+            </div>
+
+            {/* ACTION BUTTONS */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <button
+                onClick={() => handleApproveListing(listing)}
+                style={{
+                  background: A.green,
+                  color: '#fff',
+                  border: 'none',
+                  padding: '6px 10px',
+                  borderRadius: 6,
+                  cursor: 'pointer'
+                }}
+              >
+                Approve
+              </button>
+
+              <button
+                onClick={() => handleRejectListing(listing.id)}
+                style={{
+                  background: A.red,
+                  color: '#fff',
+                  border: 'none',
+                  padding: '6px 10px',
+                  borderRadius: 6,
+                  cursor: 'pointer'
+                }}
+              >
+                Reject
+              </button>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )}
+</div>
 
           {/* ── LISTINGS ─────────────────────────────────────────────── */}
           {activeSection === 'listings' && (
@@ -778,6 +918,61 @@ if (!user.isAdmin) {
             </div>
           )}
 
+          {/* ── PENDING REVIEW ───────────────────────────────────────── */}
+          {activeSection === 'pending' && (
+            <div>
+              <SectionHeader
+                title="Pending review"
+                sub={`${pendingListings.length} submission${pendingListings.length !== 1 ? 's' : ''} awaiting your decision`}
+              />
+
+              {pendingListings.length === 0 ? (
+                <EmptyState
+                  icon="📬"
+                  title="No pending submissions"
+                  sub="When property owners submit listings they will appear here for your review."
+                />
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {pendingListings.map((p) => (
+                    <PendingCard
+                      key={p.id}
+                      listing={p}
+                      onApprove={() => {
+                        // Move from pending → active listings
+                        const approved = {
+                          ...p,
+                          id:      Date.now(),
+                          status:  'active',
+                          hidden:  false,
+                          rating:  0,
+                          reviews: 0,
+                          verified: false,
+                          images:  Array.isArray(p.images) ? p.images : (p.images ? [p.images] : []),
+                        };
+                        setListings(ls => [approved, ...ls]);
+                        const updated = pendingListings.filter(x => x.id !== p.id);
+                        setPendingListings(updated);
+                        localStorage.setItem('pendingListings', JSON.stringify(updated));
+                        // Firestore version:
+                        // await updateDoc(doc(db, 'pendingListings', p.id), { status: 'approved' });
+                        // await addDoc(collection(db, 'listings'), { ...p, status: 'active' });
+                      }}
+                      onReject={() => {
+                        if (!window.confirm(`Reject "${p.title}"? This cannot be undone.`)) return;
+                        const updated = pendingListings.filter(x => x.id !== p.id);
+                        setPendingListings(updated);
+                        localStorage.setItem('pendingListings', JSON.stringify(updated));
+                        // Firestore version:
+                        // await updateDoc(doc(db, 'pendingListings', p.id), { status: 'rejected' });
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ── USERS ────────────────────────────────────────────────── */}
           {activeSection === 'users' && (
             <div>
@@ -873,6 +1068,116 @@ if (!user.isAdmin) {
           description: editTarget.description || '',
         } : null}
       />
+    </div>
+  );
+}
+
+// ─── PendingCard ──────────────────────────────────────────────────────────────
+// Renders a single host-submitted listing awaiting admin approval.
+
+function PendingCard({ listing, onApprove, onReject }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const imageUrl = Array.isArray(listing.images)
+    ? listing.images[0]
+    : listing.images || null;
+
+  return (
+    <div style={{
+      background: A.card, borderRadius: 16,
+      border: `1.5px solid ${A.amber}40`,
+      overflow: 'hidden',
+      boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
+    }}>
+      {/* ── Header row ───────────────────────────────────────────────── */}
+      <div style={{ padding: '18px 22px', display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        {/* Thumbnail */}
+        <div style={{ width: 72, height: 72, borderRadius: 10, overflow: 'hidden', background: A.bg, flexShrink: 0 }}>
+          {imageUrl ? (
+            <img src={imageUrl} alt={listing.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { e.target.style.display = 'none'; }} />
+          ) : (
+            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>🏡</div>
+          )}
+        </div>
+
+        {/* Info */}
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+            <p style={{ fontWeight: 700, fontSize: 16, color: A.text, margin: 0, fontFamily: "'Playfair Display', serif" }}>
+              {listing.title || 'Untitled listing'}
+            </p>
+            <span style={{ background: A.amber + '20', color: A.amber, border: `1px solid ${A.amber}40`, borderRadius: 20, fontSize: 11, fontWeight: 700, padding: '2px 9px' }}>
+              ⏳ Pending
+            </span>
+          </div>
+          <p style={{ color: A.muted, fontSize: 13, margin: '0 0 6px' }}>📍 {listing.location || '—'}</p>
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, color: A.text, fontWeight: 600 }}>
+              {listing.price ? `KES ${Number(listing.price).toLocaleString()} / night` : 'No price set'}
+            </span>
+            {listing.name && <span style={{ fontSize: 13, color: A.muted }}>Host: {listing.name}</span>}
+            {listing.phone && <span style={{ fontSize: 13, color: A.muted }}>📞 {listing.phone}</span>}
+            {listing.email && <span style={{ fontSize: 13, color: A.muted }}>✉️ {listing.email}</span>}
+          </div>
+          {listing.amenities?.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+              {listing.amenities.map(a => (
+                <span key={a} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: A.bg, border: `1px solid ${A.border}`, color: A.muted }}>
+                  {a}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Submitted date */}
+        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+          <p style={{ fontSize: 11, color: A.muted, margin: '0 0 4px' }}>Submitted</p>
+          <p style={{ fontSize: 12, color: A.text, margin: 0, fontWeight: 500 }}>
+            {listing.submittedAt
+              ? new Date(listing.submittedAt).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' })
+              : '—'}
+          </p>
+        </div>
+      </div>
+
+      {/* ── Description expand ───────────────────────────────────────── */}
+      {listing.description && (
+        <div style={{ paddingLeft: 22, paddingRight: 22, paddingBottom: expanded ? 14 : 0 }}>
+          <button
+            onClick={() => setExpanded(e => !e)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: A.blue, fontSize: 13, padding: 0, marginBottom: 8, fontWeight: 500 }}
+          >
+            {expanded ? '▲ Hide description' : '▼ Read description'}
+          </button>
+          {expanded && (
+            <p style={{ fontSize: 14, color: A.muted, lineHeight: 1.7, margin: 0, paddingBottom: 8 }}>
+              {listing.description}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ── Action bar ───────────────────────────────────────────────── */}
+      <div style={{
+        borderTop: `1px solid ${A.border}`,
+        padding: '14px 22px',
+        display: 'flex', gap: 10, justifyContent: 'flex-end',
+        background: A.bg,
+      }}>
+        <button
+          onClick={onReject}
+          style={{ padding: '8px 20px', borderRadius: 10, border: `1px solid ${A.red}40`, background: A.red + '10', color: A.red, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+        >
+          ✕ Reject
+        </button>
+        <button
+          onClick={onApprove}
+          style={{ padding: '8px 24px', borderRadius: 10, border: 'none', background: A.green, color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
+        >
+          ✓ Approve & publish
+        </button>
+      </div>
     </div>
   );
 }

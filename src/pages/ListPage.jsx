@@ -5,6 +5,9 @@
 import React, { useState } from 'react';
 import { COLORS, inputStyle, primaryBtnStyle, labelStyle } from '../styles/theme';
 import { ALL_AMENITIES } from '../data/listings';
+import { db } from '../firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+
 
 export default function ListPage() {
   const [form, setForm] = useState({
@@ -22,14 +25,47 @@ export default function ListPage() {
         : [...f.amenities, a],
     }));
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    // TODO: POST to /api/listings (Express) or Firestore addDoc()
-    console.log('New listing submitted:', form);
-    setSubmitted(true);
-  };
+const handleSubmit = async (e) => {
+  e.preventDefault();
 
-  if (submitted) return <SuccessScreen onReset={() => setSubmitted(false)} />;
+  try {
+    await addDoc(collection(db, 'pendingListings'), {
+      ...form,
+      price: Number(form.price),
+      status: 'pending',
+      images: form.images ? [form.images] : [],
+      submittedAt: serverTimestamp(),
+      rating: 0,
+      reviews: 0,
+      verified: false,
+    });
+
+    setSubmitted(true);
+
+  } catch (err) {
+    console.error(err);
+    alert('Submission failed');
+  }
+};
+
+const handleReset = () => {
+  setSubmitted(false);
+
+  setForm({
+    name: '',
+    phone: '',
+    email: '',
+    title: '',
+    description: '',
+    location: '',
+    price: '',
+    amenities: [],
+    images: '',
+  });
+};
+
+  if (submitted)
+  return <SuccessScreen onReset={handleReset} />;
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto', padding: '40px 24px 100px' }}>
