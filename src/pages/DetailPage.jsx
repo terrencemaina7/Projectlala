@@ -9,6 +9,8 @@ import Badge from '../components/Badge';
 import StarRating from '../components/StarRating';
 import AmenityIcon from '../components/AmenityIcon';
 import BookingCard from '../components/BookingCard';
+import { useBookedDates } from '../hooks/useBookedDates';
+import DateRangePicker    from '../components/DateRangePicker';
 
 const SEED_REVIEWS = [
   { user: 'Sarah K.', rating: 5, text: 'Absolutely magical! The views were breathtaking and the host was incredibly responsive.', date: 'March 2025' },
@@ -20,8 +22,17 @@ export default function DetailPage() {
   const { selectedListing: listing, user, setPage } = useApp();
 
   const [imgIdx, setImgIdx] = useState(0);
-  const [nights, setNights] = useState(3);
-  const [bookingDone, setBookingDone] = useState(false);
+  const [checkIn,      setCheckIn]      = useState(null);
+  const [checkOut,     setCheckOut]     = useState(null);
+  const [calOpen,      setCalOpen]      = useState(false);
+  const [bookingDone,  setBookingDone]  = useState(false);
+
+  const { blockedDates, bookDates } = useBookedDates(listing?.id);
+
+  // Derive nights from selected dates; fall back to 1
+  const nights = checkIn && checkOut
+    ? Math.max(1, Math.round((checkOut - checkIn) / (1000 * 60 * 60 * 24)))
+    : 1;
   const [reviews, setReviews] = useState(SEED_REVIEWS);
   const [reviewText, setReviewText] = useState('');
   const [reviewRating, setReviewRating] = useState(5);
@@ -264,7 +275,6 @@ export default function DetailPage() {
             <BookingCard
               listing={listing}
               nights={nights}
-              setNights={setNights}
               total={total}
               serviceFee={serviceFee}
               grandTotal={grandTotal}

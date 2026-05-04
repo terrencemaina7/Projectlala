@@ -8,12 +8,17 @@ import React, { useState } from 'react';
 import { COLORS, formatKES, primaryBtnStyle } from '../styles/theme';
 import { initiateMpesaPayment, checkMpesaStatus } from '../payment/mpesa';
 import { CardPaymentForm } from '../payment/card';
+import DateRangePicker from './DateRangePicker';
 
 export default function BookingCard({
   listing, nights, setNights,
   total, serviceFee, grandTotal,
   user, bookingDone, setBookingDone,
+  // ── New date props ─────────────────────────────
+  checkIn, checkOut, calOpen, setCalOpen,
+  onDatesChange, blockedDates = [], bookDates,
 }) {
+
   const [payMethod,    setPayMethod]    = useState('mpesa');
   const [mpesaPhone,   setMpesaPhone]   = useState('');
   const [mpesaStep,    setMpesaStep]    = useState('idle');
@@ -39,7 +44,11 @@ export default function BookingCard({
         try {
           const result = await checkMpesaStatus(checkoutRequestId);
           if (result.status === 'success') {
-            clearInterval(poll); setMpesaStep('success'); setBookingDone(true);
+            clearInterval(poll); setMpesaStep('success');
+            if (bookDates && checkIn && checkOut) {
+              await bookDates({ checkIn, checkOut, userId: user?.uid || user?.email, totalKES: grandTotal, paymentMethod: 'mpesa' });
+            }
+            setBookingDone(true);
           } else if (result.status === 'failed' || attempts >= 10) {
             clearInterval(poll); setMpesaStep('error');
             setMpesaMsg(result.message || 'Payment was not completed. Please try again.');
@@ -49,7 +58,13 @@ export default function BookingCard({
     } catch (e) { setMpesaStep('error'); setMpesaMsg(e.message); }
   };
 
-  const handleCardSuccess = () => { setShowCardForm(false); setBookingDone(true); };
+  const handleCardSuccess = async () => {
+    if (bookDates && checkIn && checkOut) {
+      await bookDates({ checkIn, checkOut, userId: user?.uid || user?.email, totalKES: grandTotal, paymentMethod: 'card' });
+    }
+    setShowCardForm(false);
+    setBookingDone(true);
+  };
 
   if (bookingDone) return <ConfirmedBanner listing={listing} method={payMethod} />;
 
@@ -72,6 +87,44 @@ export default function BookingCard({
           {formatKES(listing.price)}
         </span>
         <span style={{ color: COLORS.muted, fontSize: 14 }}> / night</span>
+      </div>
+
+      {/* ── Date picker row ───────────────────────────────────────────── */}
+      <div style={{ position: 'relative', marginBottom: 16 }}>
+        <label style={miniLabel}>Dates</label>
+        <button
+          onClick={() => setCalOpen(o => !o)}
+          style={{
+            width: '100%', padding: '11px 14px', borderRadius: 10,
+            border: `1.5px solid ${calOpen ? COLORS.tuscanDark : COLORS.border}`,
+            background: COLORS.pearlDark, cursor: 'pointer',
+            textAlign: 'left', fontSize: 14,
+            color: checkIn ? COLORS.tuscanDark : COLORS.mutedLight,
+            fontWeight: checkIn ? 600 : 400,
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          }}
+        >
+          <span>
+            {checkIn && checkOut
+              ? `${checkIn.toLocaleDateString('en-KE',{day:'numeric',month:'short'})} – ${checkOut.toLocaleDateString('en-KE',{day:'numeric',month:'short'})}`
+              : checkIn
+              ? `${checkIn.toLocaleDateString('en-KE',{day:'numeric',month:'short'})} – select end date`
+              : '📅 Select your dates'}
+          </span>
+          <span style={{ color: COLORS.muted, fontSize: 12 }}>
+            {nights > 1 ? `${nights} nights` : ''}
+          </span>
+        </button>
+
+        {calOpen && (
+          <DateRangePicker
+            checkIn={checkIn}
+            checkOut={checkOut}
+            blockedDates={blockedDates}
+            onChange={onDatesChange}
+            onClose={() => setCalOpen(false)}
+          />
+        )}
       </div>
 
       <div style={{ marginBottom: 16 }}>
