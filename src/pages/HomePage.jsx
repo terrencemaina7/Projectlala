@@ -41,9 +41,9 @@ export default function HomePage() {
   const [calOpen,   setCalOpen]   = useState(false);
   const [guestOpen, setGuestOpen] = useState(false);
 
-  // Refs for the popup anchor divs
-  const dateAnchorRef  = useRef(null);
-  const guestAnchorRef = useRef(null);
+  // Refs for the popup anchor divs — no longer needed (modals are centred)
+  // const dateAnchorRef  = useRef(null);
+  // const guestAnchorRef = useRef(null);
 
   const handleSearch = () => {
     setSearchQuery({
@@ -117,10 +117,7 @@ export default function HomePage() {
             <SearchDivider />
 
             {/* ── DATES ─────────────────────────────────────────────── */}
-            <div
-              ref={dateAnchorRef}
-              style={{ flex: '1 1 170px', minWidth: 150, position: 'relative' }}
-            >
+            <div style={{ flex: '1 1 170px', minWidth: 150, position: 'relative' }}>
               <p style={fieldLabel}>Dates</p>
               <button
                 onClick={() => { setCalOpen(o => !o); setGuestOpen(false); }}
@@ -147,12 +144,12 @@ export default function HomePage() {
                   : 'Add dates'}
               </button>
 
-              {/* Calendar popup */}
+              {/* Calendar modal — portal, centred overlay */}
               {calOpen && (
                 <DateRangePicker
                   checkIn={checkIn}
                   checkOut={checkOut}
-                  blockedDates={[]}   // Homepage search has no listing-specific blocked dates
+                  blockedDates={[]}
                   onChange={({ checkIn: ci, checkOut: co }) => {
                     setCheckIn(ci);
                     setCheckOut(co);
@@ -165,10 +162,7 @@ export default function HomePage() {
             <SearchDivider />
 
             {/* ── GUESTS ────────────────────────────────────────────── */}
-            <div
-              ref={guestAnchorRef}
-              style={{ flex: '1 1 150px', minWidth: 130, position: 'relative' }}
-            >
+            <div style={{ flex: '1 1 150px', minWidth: 130, position: 'relative' }}>
               <p style={fieldLabel}>Guests</p>
               <button
                 onClick={() => { setGuestOpen(o => !o); setCalOpen(false); }}
@@ -191,7 +185,7 @@ export default function HomePage() {
                 {guestLabel(guests)}
               </button>
 
-              {/* Guest picker popup */}
+              {/* Guest picker modal — portal, centred overlay */}
               {guestOpen && (
                 <GuestPicker
                   value={guests}

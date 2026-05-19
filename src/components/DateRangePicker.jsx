@@ -1,206 +1,121 @@
 // ─── DateRangePicker.jsx ──────────────────────────────────────────────────────
-// A self-contained popup calendar that lets guests pick a check-in / check-out
-// date range.  Blocked/booked dates are greyed out and unclickable.
-// The popup appears directly below whichever button triggered it.
-//
-// Usage:
-//   <DateRangePicker
-//     checkIn={checkIn}              // Date | null
-//     checkOut={checkOut}            // Date | null
-//     onChange={({ checkIn, checkOut }) => ...}
-//     blockedDates={['2025-06-10', '2025-06-11']}   // 'YYYY-MM-DD' strings
-//     onClose={() => setCalOpen(false)}
-//   />
+// Renders as a centred modal overlay via React Portal.
+// A semi-transparent dark backdrop covers the whole page so the calendar
+// floats above everything — no positioning math, no scroll bugs.
 
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 
-// ─── Palette (inline so the component works without theme.js) ─────────────────
 const C = {
-  tuscanDark:  '#5C4425',
-  tuscan:      '#8B6F47',
-  tuscanLight: '#A68B5B',
-  tuscanPale:  '#E8D5BC',
-  pearl:       '#F8F6F0',
-  pearlDark:   '#EDE9E0',
-  pearlDeep:   '#DDD6C8',
-  orange:      '#FF5E3A',
-  charcoal:    '#2C1F0E',
-  muted:       '#7A6A56',
-  mutedLight:  '#C0A882',
-  white:       '#FFFFFF',
-  blocked:     '#F0EBE3',
-  blockedText: '#C0A882',
-  inRange:     '#F0E4D4',
-  green:       '#16a34a',
+  tuscanDark:'#5C4425', tuscan:'#8B6F47', tuscanLight:'#A68B5B',
+  pearl:'#F8F6F0', pearlDark:'#EDE9E0', pearlDeep:'#DDD6C8',
+  orange:'#FF5E3A', charcoal:'#2C1F0E', muted:'#7A6A56',
+  mutedLight:'#C0A882', white:'#FFFFFF', inRange:'#F0E4D4',
 };
 
-// ─── Pure helpers ─────────────────────────────────────────────────────────────
+const DAYS   = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+const MONTHS = ['January','February','March','April','May','June',
+                'July','August','September','October','November','December'];
 
-const DAYS   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-const MONTHS = [
-  'January','February','March','April','May','June',
-  'July','August','September','October','November','December',
-];
-
-/** Date → 'YYYY-MM-DD' */
-const toKey = (d) =>
+const toKey = d =>
   `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-
-/** Are two dates the same calendar day? */
-const sameDay = (a, b) => a && b && toKey(a) === toKey(b);
-
-/** Is `date` strictly between `start` and `end`? */
-const between = (date, start, end) => {
-  if (!start || !end) return false;
-  const t = date.getTime();
-  return t > Math.min(start.getTime(), end.getTime()) &&
-         t < Math.max(start.getTime(), end.getTime());
+const sameDay = (a,b) => a && b && toKey(a) === toKey(b);
+const between = (date,s,e) => {
+  if(!s||!e) return false;
+  const t=date.getTime();
+  return t>Math.min(s.getTime(),e.getTime()) && t<Math.max(s.getTime(),e.getTime());
 };
-
-/** Does the range [start, end) contain any blocked date? */
-const rangeHasBlocked = (start, end, blocked) => {
-  if (!start || !end) return false;
-  const cursor = new Date(start);
-  cursor.setDate(cursor.getDate() + 1);
-  while (cursor < end) {
-    if (blocked.includes(toKey(cursor))) return true;
-    cursor.setDate(cursor.getDate() + 1);
-  }
+const rangeHasBlocked = (s,e,blocked) => {
+  if(!s||!e) return false;
+  const cur=new Date(s); cur.setDate(cur.getDate()+1);
+  while(cur<e){if(blocked.includes(toKey(cur)))return true; cur.setDate(cur.getDate()+1);}
   return false;
 };
+const daysInMonth  = (y,m) => new Date(y,m+1,0).getDate();
+const firstWeekday = (y,m) => new Date(y,m,1).getDay();
+const shiftMonth   = (d,n) => { const r=new Date(d); r.setDate(1); r.setMonth(r.getMonth()+n); return r; };
+const fmtShort     = d => d.toLocaleDateString('en-KE',{day:'numeric',month:'short'});
 
-/** How many days are in a given month? */
-const daysInMonth = (y, m) => new Date(y, m + 1, 0).getDate();
-
-/** What weekday does the 1st fall on? */
-const firstWeekday = (y, m) => new Date(y, m, 1).getDay();
-
-/** Add/subtract whole months from a Date (always returns the 1st) */
-const shiftMonth = (date, delta) => {
-  const d = new Date(date);
-  d.setDate(1);
-  d.setMonth(d.getMonth() + delta);
-  return d;
-};
-
-/** Format a Date for display, e.g. "5 Jun" */
-const fmtShort = (d) =>
-  d.toLocaleDateString('en-KE', { day: 'numeric', month: 'short' });
-
-// ─── Single month calendar grid ───────────────────────────────────────────────
-
+// ── Single month grid ─────────────────────────────────────────────────────────
 function MonthGrid({ year, month, checkIn, checkOut, hovered, blocked, onPick, onHover }) {
-  const today   = new Date(); today.setHours(0,0,0,0);
-  const total   = daysInMonth(year, month);
-  const offset  = firstWeekday(year, month);
+  const today    = new Date(); today.setHours(0,0,0,0);
+  const total    = daysInMonth(year, month);
+  const offset   = firstWeekday(year, month);
   const rangeEnd = checkOut || hovered;
-
-  const cells = [];
-  for (let i = 0; i < offset; i++) cells.push(null);
-  for (let d = 1; d <= total; d++) cells.push(new Date(year, month, d));
+  const cells    = [];
+  for(let i=0;i<offset;i++) cells.push(null);
+  for(let d=1;d<=total;d++) cells.push(new Date(year,month,d));
 
   return (
-    <div style={{ flex: '1 1 260px', minWidth: 240 }}>
-      {/* Month + year heading */}
-      <p style={{
-        textAlign: 'center', margin: '0 0 12px',
-        fontFamily: "'Playfair Display', Georgia, serif",
-        fontSize: 15, fontWeight: 700, color: C.tuscanDark,
-      }}>
+    <div style={{ flex:'1 1 240px', minWidth:220 }}>
+      <p style={{ textAlign:'center', margin:'0 0 12px',
+        fontFamily:"'Playfair Display',serif", fontSize:14,
+        fontWeight:700, color:C.tuscanDark }}>
         {MONTHS[month]} {year}
       </p>
 
-      {/* Weekday headers */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', marginBottom: 6 }}>
-        {DAYS.map(d => (
-          <div key={d} style={{ textAlign: 'center', fontSize: 10, fontWeight: 700,
-            color: C.muted, padding: '2px 0', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+      {/* Day-of-week headers */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', marginBottom:4 }}>
+        {DAYS.map(d=>(
+          <div key={d} style={{ textAlign:'center', fontSize:10, fontWeight:700,
+            color:C.muted, textTransform:'uppercase', letterSpacing:0.4, padding:'2px 0' }}>
             {d}
           </div>
         ))}
       </div>
 
       {/* Day cells */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)' }}>
-        {cells.map((date, idx) => {
-          if (!date) return <div key={`e${idx}`} style={{ height: 38 }} />;
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)' }}>
+        {cells.map((date,idx)=>{
+          if(!date) return <div key={`e${idx}`} style={{ height:38 }}/>;
 
-          const key        = toKey(date);
-          const isBlocked  = blocked.includes(key);
-          const isPast     = date < today;
-          const disabled   = isBlocked || isPast;
-          const isStart    = sameDay(date, checkIn);
-          const isEnd      = sameDay(date, checkOut);
-          const isEndHover = sameDay(date, hovered) && !checkOut;
-          const inRange    = !disabled && checkIn && between(date, checkIn, rangeEnd);
-          const isToday    = sameDay(date, today);
+          const key       = toKey(date);
+          const isBlocked = blocked.includes(key);
+          const isPast    = date < today;
+          const disabled  = isBlocked || isPast;
+          const isStart   = sameDay(date,checkIn);
+          const isEnd     = sameDay(date,checkOut);
+          const isHov     = sameDay(date,hovered) && !checkOut && checkIn;
+          const inRange   = !disabled && checkIn && between(date,checkIn,rangeEnd);
+          const isToday   = sameDay(date,today);
 
-          // Background for range strip
-          let stripBg = 'transparent';
-          let stripRadius = '0';
-          if (inRange) {
-            stripBg     = C.inRange;
-            stripRadius = '0';
-            if (sameDay(date, checkIn) || date.getDay() === 0) stripRadius = '20px 0 0 20px';
-            if (sameDay(date, rangeEnd) || date.getDay() === 6) stripRadius = '0 20px 20px 0';
+          // Range strip behind the circle
+          let stripBg='transparent', stripRadius='0';
+          if(inRange){
+            stripBg='#F0E4D4';
+            if(date.getDay()===0 || sameDay(date,checkIn))       stripRadius='20px 0 0 20px';
+            else if(date.getDay()===6 || sameDay(date,rangeEnd)) stripRadius='0 20px 20px 0';
           }
 
-          // Circle background
-          let circleBg     = 'transparent';
-          let circleColor  = disabled ? C.blockedText : C.charcoal;
-          let circleBorder = 'none';
-
-          if (isStart || isEnd) {
-            circleBg    = C.tuscanDark;
-            circleColor = C.white;
-          } else if (isEndHover && checkIn) {
-            circleBg    = C.tuscanLight;
-            circleColor = C.white;
-          } else if (isToday && !disabled) {
-            circleBorder = `2px solid ${C.orange}`;
-          }
+          // Circle styles
+          let bg='transparent', fg=disabled?C.mutedLight:C.charcoal, border='none';
+          if(isStart||isEnd)        { bg=C.tuscanDark; fg=C.white; }
+          else if(isHov)            { bg=C.tuscanLight; fg=C.white; }
+          else if(isToday&&!disabled) border=`2px solid ${C.orange}`;
 
           return (
-            <div
-              key={key}
-              style={{ background: stripBg, borderRadius: stripRadius, padding: '1px 0' }}
-            >
+            <div key={key} style={{ background:stripBg, borderRadius:stripRadius, padding:'1px 0' }}>
               <div
-                onClick={() => !disabled && onPick(date)}
-                onMouseEnter={() => !disabled && checkIn && !checkOut && onHover(date)}
-                onMouseLeave={() => onHover(null)}
-                title={isBlocked ? '🚫 Already booked' : isPast ? 'Past date' : undefined}
+                onClick={()=>!disabled && onPick(date)}
+                onMouseEnter={()=>!disabled && checkIn && !checkOut && onHover(date)}
+                onMouseLeave={()=>onHover(null)}
+                title={isBlocked?'Already booked':isPast?'Past date':undefined}
                 style={{
-                  height:          38,
-                  display:         'flex',
-                  alignItems:      'center',
-                  justifyContent:  'center',
-                  cursor:          disabled ? 'not-allowed' : 'pointer',
-                  borderRadius:    '50%',
-                  background:      circleBg,
-                  border:          circleBorder,
-                  color:           circleColor,
-                  fontSize:        13,
-                  fontWeight:      isStart || isEnd ? 700 : 400,
-                  opacity:         disabled ? 0.35 : 1,
-                  transition:      'background 0.1s, transform 0.1s',
-                  transform:       !disabled && !isStart && !isEnd ? undefined : undefined,
-                  position:        'relative',
-                  userSelect:      'none',
-                  WebkitUserSelect:'none',
-                  // Strikethrough for blocked
-                  textDecoration:  isBlocked ? 'line-through' : 'none',
+                  height:38, display:'flex', alignItems:'center', justifyContent:'center',
+                  cursor:disabled?'not-allowed':'pointer',
+                  borderRadius:'50%', background:bg, border, color:fg,
+                  fontSize:13, fontWeight:isStart||isEnd?700:400,
+                  opacity:disabled?0.3:1, position:'relative',
+                  userSelect:'none', WebkitUserSelect:'none',
+                  textDecoration:isBlocked?'line-through':'none',
+                  transition:'background 0.1s',
                 }}
               >
                 {date.getDate()}
-                {/* Booked indicator dot */}
                 {isBlocked && (
-                  <span style={{
-                    position: 'absolute', bottom: 3, left: '50%',
-                    transform: 'translateX(-50%)',
-                    width: 4, height: 4, borderRadius: '50%',
-                    background: C.mutedLight,
-                  }} />
+                  <span style={{ position:'absolute', bottom:2, left:'50%',
+                    transform:'translateX(-50%)', width:3, height:3,
+                    borderRadius:'50%', background:C.mutedLight }}/>
                 )}
               </div>
             </div>
@@ -211,242 +126,191 @@ function MonthGrid({ year, month, checkIn, checkOut, hovered, blocked, onPick, o
   );
 }
 
-// ─── Main DateRangePicker popup ───────────────────────────────────────────────
-
+// ── Main component ────────────────────────────────────────────────────────────
 export default function DateRangePicker({
-  checkIn,
-  checkOut,
-  onChange,
-  blockedDates = [],
-  onClose,
+  checkIn, checkOut, onChange, blockedDates=[], onClose,
 }) {
   const today = new Date(); today.setHours(0,0,0,0);
-
-  // Left calendar always starts at current month; right is next month
   const [leftMonth, setLeftMonth] = useState(
     new Date(today.getFullYear(), today.getMonth(), 1)
   );
-  const [hovered,   setHovered]   = useState(null);
-  // Are we waiting for checkIn or checkOut next?
-  const [step,      setStep]      = useState(checkIn ? 'out' : 'in');
+  const [hovered, setHovered] = useState(null);
+  const [step,    setStep]    = useState(checkIn ? 'out' : 'in');
+  const panelRef = useRef(null);
 
   const rightMonth = shiftMonth(leftMonth, 1);
-  const popupRef   = useRef(null);
+  const canBack    = leftMonth > today;
 
-  // ── Close on outside click ────────────────────────────────────────────────
+  // Close on Escape key
   useEffect(() => {
-    const handler = (e) => {
-      if (popupRef.current && !popupRef.current.contains(e.target)) {
-        onClose?.();
-      }
-    };
-    // Small delay so the button that opened us doesn't immediately close us
-    const timer = setTimeout(() => {
-      document.addEventListener('mousedown', handler);
-    }, 100);
-    return () => {
-      clearTimeout(timer);
-      document.removeEventListener('mousedown', handler);
-    };
+    const onKey = e => { if(e.key==='Escape') onClose?.(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  // ── Handle a day being clicked ────────────────────────────────────────────
-  const handlePick = (date) => {
-    if (step === 'in' || (checkIn && date <= checkIn)) {
-      // Start a fresh selection
-      onChange({ checkIn: date, checkOut: null });
-      setStep('out');
-      setHovered(null);
+  // Prevent body scroll while open
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, []);
+
+  const handlePick = date => {
+    if(step==='in' || (checkIn && date<=checkIn)){
+      onChange({ checkIn:date, checkOut:null });
+      setStep('out'); setHovered(null);
     } else {
-      // Completing the range — guard against blocked dates inside it
-      if (rangeHasBlocked(checkIn, date, blockedDates)) {
-        alert(
-          'One or more dates in your selected range are already booked.\n' +
-          'Please choose dates that avoid the unavailable (greyed-out) dates.'
-        );
-        onChange({ checkIn: null, checkOut: null });
-        setStep('in');
-        return;
+      if(rangeHasBlocked(checkIn, date, blockedDates)){
+        alert('Your range includes unavailable dates. Please choose different dates.');
+        onChange({ checkIn:null, checkOut:null }); setStep('in'); return;
       }
-      onChange({ checkIn, checkOut: date });
-      setStep('in');
-      setHovered(null);
+      onChange({ checkIn, checkOut:date }); setStep('in'); setHovered(null);
     }
   };
 
   const nights = checkIn && checkOut
-    ? Math.round((checkOut - checkIn) / 86_400_000)
-    : 0;
+    ? Math.round((checkOut-checkIn)/86400000) : 0;
 
-  const canGoBack = leftMonth > today;
+  const modal = (
+    <>
+      {/* ── Dark backdrop — clicking it closes the picker ───────────── */}
+      <div
+        onClick={onClose}
+        style={{
+          position:'fixed', inset:0,
+          background:'rgba(30,15,0,0.55)',
+          zIndex:99998,
+          backdropFilter:'blur(2px)',
+          WebkitBackdropFilter:'blur(2px)',
+        }}
+      />
 
-  return (
-    <div
-      ref={popupRef}
-      style={{
-        position:    'absolute',
-        top:         'calc(100% + 8px)',
-        left:        '50%',
-        transform:   'translateX(-50%)',
-        zIndex:      3000,
-        background:  C.white,
-        borderRadius: 20,
-        boxShadow:   '0 20px 64px rgba(61,43,16,0.22)',
-        border:      `1px solid ${C.pearlDeep}`,
-        padding:     '24px 20px 18px',
-        width:       'min(640px, 96vw)',
-        boxSizing:   'border-box',
-      }}
-    >
-      {/* ── Instruction strip ──────────────────────────────────────── */}
-      <div style={{
-        display:        'flex',
-        justifyContent: 'space-between',
-        alignItems:     'center',
-        marginBottom:   18,
-        flexWrap:       'wrap',
-        gap:            8,
-      }}>
-        <div>
-          <p style={{
-            fontFamily:   "'Playfair Display', serif",
-            fontSize:     15, fontWeight: 700,
-            color:        C.tuscanDark, margin: 0,
-          }}>
-            {step === 'in' ? '📅 Pick your check-in date' : '📅 Now pick check-out date'}
-          </p>
-          <p style={{ fontSize: 12, color: C.muted, margin: '3px 0 0' }}>
-            {checkIn && checkOut
-              ? `✓ ${fmtShort(checkIn)} → ${fmtShort(checkOut)}  ·  ${nights} night${nights !== 1 ? 's' : ''}`
-              : checkIn
-              ? `Check-in: ${fmtShort(checkIn)} — now select check-out`
-              : 'Greyed-out dates are already booked'}
-          </p>
+      {/* ── Floating panel — centred in viewport ───────────────────── */}
+      <div
+        ref={panelRef}
+        style={{
+          position:  'fixed',
+          top:       '50%',
+          left:      '50%',
+          transform: 'translate(-50%, -50%)',
+          zIndex:    99999,
+          background: C.white,
+          borderRadius: 24,
+          boxShadow: '0 32px 100px rgba(61,43,16,0.35)',
+          border:    `1px solid ${C.pearlDeep}`,
+          padding:   '28px 24px 20px',
+          width:     'min(680px, 95vw)',
+          maxHeight: '90vh',
+          overflowY: 'auto',
+          boxSizing: 'border-box',
+        }}
+      >
+        {/* Header row */}
+        <div style={{ display:'flex', justifyContent:'space-between',
+          alignItems:'flex-start', marginBottom:20 }}>
+          <div>
+            <p style={{ fontFamily:"'Playfair Display',serif", fontSize:17,
+              fontWeight:700, color:C.tuscanDark, margin:0 }}>
+              {step==='in' ? '📅 Select your check-in date' : '📅 Select your check-out date'}
+            </p>
+            <p style={{ fontSize:13, color:C.muted, margin:'5px 0 0' }}>
+              {checkIn && checkOut
+                ? `✓  ${fmtShort(checkIn)} → ${fmtShort(checkOut)}  ·  ${nights} night${nights!==1?'s':''}`
+                : checkIn
+                ? `Check-in: ${fmtShort(checkIn)}  —  now pick check-out`
+                : 'Greyed-out dates are already booked and cannot be selected'}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            style={{ background:C.pearlDark, border:'none', width:34, height:34,
+              borderRadius:'50%', cursor:'pointer', fontSize:20, color:C.muted,
+              display:'flex', alignItems:'center', justifyContent:'center',
+              flexShrink:0, marginLeft:16 }}
+          >×</button>
         </div>
-        {/* Close X */}
-        <button
-          onClick={onClose}
-          style={{
-            background: C.pearlDark, border: 'none',
-            width: 30, height: 30, borderRadius: '50%',
-            cursor: 'pointer', fontSize: 16,
-            color: C.muted, display: 'flex',
-            alignItems: 'center', justifyContent: 'center',
-            flexShrink: 0,
-          }}
-        >×</button>
-      </div>
 
-      {/* ── Month navigation ───────────────────────────────────────── */}
-      <div style={{
-        display:        'flex',
-        justifyContent: 'space-between',
-        alignItems:     'center',
-        marginBottom:   12,
-      }}>
-        <button
-          onClick={() => canGoBack && setLeftMonth(m => shiftMonth(m, -1))}
-          style={{
-            background:  canGoBack ? C.pearl : C.pearlDark,
-            border:      `1px solid ${C.pearlDeep}`,
-            borderRadius:'50%', width: 34, height: 34,
-            cursor:      canGoBack ? 'pointer' : 'not-allowed',
-            fontSize:    18, color: canGoBack ? C.tuscanDark : C.mutedLight,
-            display:     'flex', alignItems: 'center', justifyContent: 'center',
-            opacity:     canGoBack ? 1 : 0.35,
-          }}
-        >‹</button>
+        {/* Month navigation */}
+        <div style={{ display:'flex', justifyContent:'space-between',
+          alignItems:'center', marginBottom:16 }}>
+          <button
+            onClick={()=>canBack && setLeftMonth(m=>shiftMonth(m,-1))}
+            style={{ background:canBack?C.pearl:C.pearlDark,
+              border:`1px solid ${C.pearlDeep}`, borderRadius:'50%',
+              width:36, height:36, cursor:canBack?'pointer':'not-allowed',
+              fontSize:18, color:canBack?C.tuscanDark:C.mutedLight,
+              display:'flex', alignItems:'center', justifyContent:'center',
+              opacity:canBack?1:0.35 }}
+          >‹</button>
 
-        <button
-          onClick={() => setLeftMonth(m => shiftMonth(m, 1))}
-          style={{
-            background:  C.pearl, border: `1px solid ${C.pearlDeep}`,
-            borderRadius:'50%', width: 34, height: 34,
-            cursor:      'pointer', fontSize: 18, color: C.tuscanDark,
-            display:     'flex', alignItems: 'center', justifyContent: 'center',
-          }}
-        >›</button>
-      </div>
+          <button
+            onClick={()=>setLeftMonth(m=>shiftMonth(m,1))}
+            style={{ background:C.pearl, border:`1px solid ${C.pearlDeep}`,
+              borderRadius:'50%', width:36, height:36, cursor:'pointer',
+              fontSize:18, color:C.tuscanDark,
+              display:'flex', alignItems:'center', justifyContent:'center' }}
+          >›</button>
+        </div>
 
-      {/* ── Two-month grid ─────────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-        <MonthGrid
-          year={leftMonth.getFullYear()} month={leftMonth.getMonth()}
-          checkIn={checkIn} checkOut={checkOut} hovered={hovered}
-          blocked={blockedDates}
-          onPick={handlePick} onHover={setHovered}
-        />
-        <MonthGrid
-          year={rightMonth.getFullYear()} month={rightMonth.getMonth()}
-          checkIn={checkIn} checkOut={checkOut} hovered={hovered}
-          blocked={blockedDates}
-          onPick={handlePick} onHover={setHovered}
-        />
-      </div>
+        {/* Two month grids side by side */}
+        <div style={{ display:'flex', gap:20, flexWrap:'wrap' }}>
+          <MonthGrid
+            year={leftMonth.getFullYear()} month={leftMonth.getMonth()}
+            checkIn={checkIn} checkOut={checkOut} hovered={hovered}
+            blocked={blockedDates} onPick={handlePick} onHover={setHovered}
+          />
+          <MonthGrid
+            year={rightMonth.getFullYear()} month={rightMonth.getMonth()}
+            checkIn={checkIn} checkOut={checkOut} hovered={hovered}
+            blocked={blockedDates} onPick={handlePick} onHover={setHovered}
+          />
+        </div>
 
-      {/* ── Legend ─────────────────────────────────────────────────── */}
-      <div style={{
-        display:        'flex',
-        gap:            16,
-        marginTop:      16,
-        flexWrap:       'wrap',
-        justifyContent: 'center',
-        paddingTop:     14,
-        borderTop:      `1px solid ${C.pearlDeep}`,
-      }}>
-        {[
-          { bg: C.tuscanDark, label: 'Selected date' },
-          { bg: C.inRange,    label: 'Your stay'      },
-          { bg: C.pearlDark,  label: 'Unavailable / booked', strike: true },
-          { outline: C.orange, label: 'Today'          },
-        ].map(({ bg, outline, label, strike }) => (
-          <span key={label} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: C.muted }}>
-            <span style={{
-              width:  14, height: 14, borderRadius: '50%',
-              background:    bg || 'transparent',
-              border:        outline ? `2px solid ${outline}` : 'none',
-              flexShrink:    0,
-              textDecoration: strike ? 'line-through' : 'none',
-              opacity:        strike ? 0.4 : 1,
-            }} />
-            {label}
-          </span>
-        ))}
-      </div>
+        {/* Legend */}
+        <div style={{ display:'flex', gap:16, marginTop:18, flexWrap:'wrap',
+          justifyContent:'center', borderTop:`1px solid ${C.pearlDeep}`, paddingTop:14 }}>
+          {[
+            { bg:C.tuscanDark, label:'Selected date' },
+            { bg:'#F0E4D4',    label:'Your stay' },
+            { bg:C.pearlDark,  label:'Unavailable', fade:true },
+            { ring:C.orange,   label:'Today' },
+          ].map(({bg,ring,label,fade})=>(
+            <span key={label} style={{ display:'flex', alignItems:'center',
+              gap:6, fontSize:11, color:C.muted }}>
+              <span style={{ width:13, height:13, borderRadius:'50%', flexShrink:0,
+                background:bg||'transparent', opacity:fade?0.4:1,
+                border:ring?`2px solid ${ring}`:'none' }}/>
+              {label}
+            </span>
+          ))}
+        </div>
 
-      {/* ── Action buttons ─────────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'flex-end' }}>
-        <button
-          onClick={() => {
-            onChange({ checkIn: null, checkOut: null });
-            setStep('in');
-            setHovered(null);
-          }}
-          style={{
-            padding:      '9px 18px', borderRadius: 10,
-            border:       `1px solid ${C.pearlDeep}`,
-            background:   'none', cursor: 'pointer',
-            fontSize:     13, color: C.muted,
-          }}
-        >
-          Clear dates
-        </button>
-        <button
-          onClick={onClose}
-          disabled={!checkIn || !checkOut}
-          style={{
-            padding:      '9px 24px', borderRadius: 10,
-            border:       'none', fontWeight: 700, fontSize: 13,
-            background:   checkIn && checkOut ? C.tuscanDark : C.pearlDeep,
-            color:        checkIn && checkOut ? C.white : C.muted,
-            cursor:       checkIn && checkOut ? 'pointer' : 'not-allowed',
-          }}
-        >
-          {checkIn && checkOut
-            ? `Confirm — ${nights} night${nights !== 1 ? 's' : ''}`
-            : 'Select both dates'}
-        </button>
+        {/* Action buttons */}
+        <div style={{ display:'flex', gap:10, marginTop:16, justifyContent:'flex-end' }}>
+          <button
+            onClick={()=>{ onChange({checkIn:null,checkOut:null}); setStep('in'); setHovered(null); }}
+            style={{ padding:'9px 18px', borderRadius:10,
+              border:`1px solid ${C.pearlDeep}`, background:'none',
+              cursor:'pointer', fontSize:13, color:C.muted }}
+          >
+            Clear dates
+          </button>
+          <button
+            onClick={onClose}
+            disabled={!checkIn||!checkOut}
+            style={{ padding:'9px 26px', borderRadius:10, border:'none',
+              fontWeight:700, fontSize:13,
+              background:checkIn&&checkOut?C.tuscanDark:C.pearlDeep,
+              color:checkIn&&checkOut?C.white:C.muted,
+              cursor:checkIn&&checkOut?'pointer':'not-allowed' }}
+          >
+            {checkIn&&checkOut
+              ? `Confirm — ${nights} night${nights!==1?'s':''}`
+              : 'Select both dates to confirm'}
+          </button>
+        </div>
       </div>
-    </div>
+    </>
   );
+
+  return createPortal(modal, document.body);
 }
