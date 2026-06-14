@@ -143,6 +143,7 @@ export default function BookingCard({
   listing,
   checkIn,
   checkOut,
+  blockedDates,
   onDatesChange,
   guests,
   onGuestsChange,
@@ -352,13 +353,13 @@ export default function BookingCard({
 
       {/* ── Portaled modals ────────────────────────────────────────── */}
       {calOpen && createPortal(
-        <DateRangePicker
-          checkIn={checkIn} checkOut={checkOut} blockedDates={[]}
-          onChange={({ checkIn:ci, checkOut:co }) => onDatesChange({ checkIn:ci, checkOut:co })}
-          onClose={() => setCalOpen(false)}
-        />,
-        document.body
-      )}
+  <DateRangePicker
+    checkIn={checkIn} checkOut={checkOut} blockedDates={blockedDates || []}
+    onChange={({ checkIn:ci, checkOut:co }) => onDatesChange({ checkIn:ci, checkOut:co })}
+    onClose={() => setCalOpen(false)}
+    />,
+      document.body
+    )}
 
       {guestOpen && createPortal(
         <GuestPicker

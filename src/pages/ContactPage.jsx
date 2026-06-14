@@ -139,7 +139,7 @@ export default function ContactPage() {
 
 const CONTACT_ITEMS = [
   { icon: '📧', label: 'Email',    val: 'lalakenyaprm@gmail.com',   link: 'mailto:lalakenyaprm@gmail.com' },
-  { icon: '💬', label: 'WhatsApp', val: '+254 113 600 8455',       link: 'https://wa.me/254113608455' },
+  { icon: '💬', label: 'WhatsApp', val: '+254 113 608 455',       link: 'https://wa.me/254113608455' },
   { icon: '📍', label: 'Based in', val: 'Nairobi, Kenya',         link: null },
 ];
 

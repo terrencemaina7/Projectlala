@@ -11,6 +11,10 @@ export function AppProvider({ children }) {
   const [searchQuery,    setSearchQuery]    = useState({});
   const [user,           setUser]           = useState(null);
 
+  // ⬇️ ADDED THESE TWO STATES BACK IN ⬇️
+  const [searchDates,    setSearchDates]    = useState({ startDate: null, endDate: null });
+  const [searchGuests,   setSearchGuests]   = useState(1);
+
   // ── Booking details passed from DetailPage → PaymentPage ─────────────────
   // Shape: { listing, checkIn, checkOut, nights, guests, subtotal, serviceFee, grandTotal }
   const [bookingDetails, setBookingDetails] = useState(null);
@@ -34,6 +38,10 @@ export function AppProvider({ children }) {
       searchQuery,     setSearchQuery,
       user,            setUser,
       bookingDetails,  setBookingDetails,
+      
+      // ⬇️ EXPORTED THE VARIABLES AND SETTERS HERE ⬇️
+      searchDates,     setSearchDates,
+      searchGuests,    setSearchGuests,
     }}>
       {children}
     </AppContext.Provider>

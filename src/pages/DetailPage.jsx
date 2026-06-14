@@ -8,6 +8,7 @@ import Badge           from '../components/Badge';
 import StarRating      from '../components/StarRating';
 import AmenityIcon     from '../components/AmenityIcon';
 import BookingCard     from '../components/BookingCard';
+import { useBookedDates } from '../hooks/useBookedDates';
 
 const C = {
   tuscanDark: '#5C4425', tuscan: '#8B6F47', tuscanLight: '#A68B5B',
@@ -45,6 +46,8 @@ export default function DetailPage() {
   const [guests,   setGuests]   = useState(
     searchGuests || { adults: 1, children: 0, infants: 0 }
   );
+  const { blockedDates } = useBookedDates(listing?.id);
+
 
   // ── Booking state — handled by PaymentPage now ───────────────────────────
 
@@ -286,6 +289,7 @@ export default function DetailPage() {
               listing={listing}
               checkIn={checkIn}
               checkOut={checkOut}
+              blockedDates={blockedDates}
               onDatesChange={handleDatesChange}
               guests={guests}
               onGuestsChange={setGuests}

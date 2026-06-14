@@ -26,17 +26,15 @@ const getAccessToken = async () => {
 // STK PUSH ROUTE
 router.post("/pay", async (req, res) => {
   try {
-    let { phone, amount } = req.body;
+    let { phone, amount, listingId, userId } = req.body;
 
-    if (!phone || !amount) {
-      return res.status(400).json({ error: "Missing phone or amount" });
+    if (!phone || !amount || !listingId || !userId) {
+      return res.status(400).json({ error: "Missing required fields (phone, amount, listingId, userId)" });
     }
 
-    phone = phone.startsWith("0")
-      ? "254" + phone.slice(1)
-      : phone;
-
-    amount = Number(amount);
+    // Normalize phone formatting
+    phone = phone.startsWith("0") ? "254" + phone.slice(1) : phone;
+    amount = Math.round(Number(amount)); // Safaricom expects an integer (no decimals)
 
     const token = await getAccessToken();
     const timestamp = moment().format("YYYYMMDDHHmmss");
@@ -47,6 +45,9 @@ router.post("/pay", async (req, res) => {
       timestamp
     ).toString("base64");
 
+    // Dynamic Callback URL safely binding tracking metadata into query params
+    const callbackUrl = `${process.env.MPESA_CALLBACK_URL}?userId=${userId}&listingId=${listingId}`;
+
     const payload = {
       BusinessShortCode: process.env.MPESA_SHORTCODE,
       Password: password,
@@ -56,8 +57,8 @@ router.post("/pay", async (req, res) => {
       PartyA: phone,
       PartyB: process.env.MPESA_SHORTCODE,
       PhoneNumber: phone,
-      CallBackURL: process.env.MPESA_CALLBACK_URL,
-      AccountReference: "LalaBnB",
+      CallBackURL: callbackUrl, // Passing the metadata embedded here
+      AccountReference: `LalaBnB-${listingId.substring(0, 5)}`, // Must stay short per Daraja specs
       TransactionDesc: "Booking Payment",
     };
 
@@ -73,7 +74,6 @@ router.post("/pay", async (req, res) => {
     );
 
     console.log("MPESA RESPONSE:", response.data);
-
     return res.json(response.data);
 
   } catch (err) {
@@ -84,42 +84,48 @@ router.post("/pay", async (req, res) => {
   }
 });
 
-//CALLBACK ROUTE to handle M-Pesa responses
+// CALLBACK ROUTE (Handles asynchronous responses from Safaricom)
 router.post("/callback", async (req, res) => {
-  try {
-    const body =
-      typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+  // 1. Acknowledge receipt to Safaricom immediately to avoid timeouts/retries
+  res.status(200).json({ ResultCode: 0, ResultDesc: "Accepted" });
 
+  try {
+    // Safaricom can send raw string streams depending on server parsing midllewares
+    const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
     const callback = body?.Body?.stkCallback;
 
-    if (!callback) {
-      return res.json({ received: true });
-    }
+    if (!callback) return;
 
+    // 2. Safely extract metadata fields from Safaricom's array structures
     const metadata = callback?.CallbackMetadata?.Item || [];
-
     const amount = metadata.find(x => x.Name === "Amount")?.Value;
     const phone = metadata.find(x => x.Name === "PhoneNumber")?.Value;
+    const mpesaReceiptNumber = metadata.find(x => x.Name === "MpesaReceiptNumber")?.Value;
 
     const success = callback?.ResultCode === 0;
-    const { listingId, userId } = req.body;
 
-    if (success) {
+    // 3. Extract your tracking fields out of the incoming URL query structure
+    const { listingId, userId } = req.query; 
+
+    console.log(`Callback Event Status Success: ${success} | User: ${userId} | Listing: ${listingId}`);
+
+    if (success && userId && listingId) {
+      // Execute booking creation with accurate reference models
       await createBooking({
-        userId: phone,
-        listingId: "mpesa-booking",
+        userId: userId,       // Correctly mapped back to guest UID
+        listingId: listingId, // Correctly mapped back to property listing document ID
         amount,
         paymentMethod: "mpesa",
         status: "paid",
         phone,
-        tx_ref: callback?.CheckoutRequestID,
+        tx_ref: mpesaReceiptNumber || callback?.CheckoutRequestID, // True M-Pesa receipt code
       });
+    } else {
+      console.warn(`Payment failed or missing query tracking metadata. ResultCode: ${callback?.ResultCode}`);
     }
 
-    res.json({ received: true });
   } catch (err) {
-    console.error("Callback error:", err);
-    res.status(500).json({ error: err.message });
+    console.error("Callback asynchronous processing error:", err);
   }
 });
 
